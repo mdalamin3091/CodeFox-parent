@@ -1,0 +1,75 @@
+services:
+  api:
+    build:
+      context: ./codefox-api
+      dockerfile: Dockerfile
+    env_file:
+      - ./codefox-api/.env
+    environment:
+      # Override .env — inside the compose network Redis is reachable by service name
+      REDIS_URL: redis://redis:6379
+      PORT: "4000"
+      # env_file would otherwise override the Dockerfile's NODE_ENV=production
+      # (image installs with --omit=dev). Auth cookie `secure` comes from
+      # BETTER_AUTH_URL's scheme, not NODE_ENV, so http://localhost still works.
+      NODE_ENV: production
+    ports:
+      # Host port overridable — Local.app / a local `npm run dev` may hold 4000
+      - "${API_PORT:-4000}:4000"
+    volumes:
+      - api-logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_* is inlined into the client bundle at build time.
+        # Must be a URL the BROWSER can reach. Pointing it at the frontend's own
+        # origin routes auth through the Next.js proxy → same-origin cookies, and
+        # the API's published host port becomes irrelevant to the browser.
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+        # rewrites() is baked into routes-manifest.json at build time — must be
+        # the internal service DNS name, not localhost.
+        API_URL: http://api:4000
+    environment:
+      # Runtime read by Server Components (lib/api/server.ts).
+      API_URL: http://api:4000
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+    ports:
+      # Keep 3000 — GitHub OAuth callback is registered at
+      # http://localhost:3000/api/auth/callback/github
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: always
+
+  redis:
+    image: redis:alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    # No host port — only `api` talks to redis, over the compose network.
+    # Debug with: docker compose exec redis redis-cli
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: always
+
+volumes:
+  redis-data:
+  api-logs:
