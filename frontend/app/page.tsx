@@ -120,7 +120,7 @@ export default function HomePage() {
           Code review,{" "}
           <span className="text-orange-500">supercharged</span>
           <br />
-          by AI
+          by AI with Al Amin
         </h1>
         <p className="mx-auto mt-6 max-w-xl text-lg text-gray-500 dark:text-gray-400">
           CodeFox connects to your GitHub repositories and automatically reviews
