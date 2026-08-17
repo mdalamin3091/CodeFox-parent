@@ -106,6 +106,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # A missing secret is substituted as an EMPTY STRING, not an error, so
+      # without this check the failure surfaces later as a confusing
+      # "PrismaConfigEnvError: Cannot resolve environment variable".
+      # Length is printed instead of the value — never echo a secret.
+      - name: Check DATABASE_URL secret exists
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL secret is empty or not set. Add it under Settings → Secrets and variables → Actions → Repository secrets."
+            exit 1
+          fi
+          echo "DATABASE_URL is set (${#DATABASE_URL} characters)"
+
       # `migrate deploy` only APPLIES existing migration files — it never
       # creates or edits them, and never prompts. That's the production
       # counterpart to `migrate dev`, which you run locally.
