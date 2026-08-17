@@ -1,0 +1,67 @@
+name: Build and Push Images
+
+# Builds both Docker images and pushes them to Docker Hub. No server deploy.
+#
+# Required repository SECRETS (Settings → Secrets and variables → Actions):
+#   DOCKERHUB_USERNAME   Docker Hub account — also the image namespace
+#   DOCKERHUB_TOKEN      Docker Hub access token, NOT your password
+#                        (Docker Hub → Account Settings → Security → New Access Token)
+#
+# Images produced:
+#   <user>/codefox-api:latest
+#   <user>/codefox-frontend:latest
+
+# When this workflow runs.
+on:
+  push:
+    branches: [main] # every push to main
+  workflow_dispatch: # plus a manual "Run workflow" button in the Actions tab
+
+jobs:
+  build:
+    # The VM GitHub gives us. Fresh and empty every run.
+    runs-on: ubuntu-latest
+
+    steps:
+      # Without this the VM has no code — it starts empty.
+      - uses: actions/checkout@v4
+
+      # Stores Docker Hub credentials so the pushes below are authorised.
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # `context` is the folder holding the Dockerfile — same value you'd
+      # pass to `docker build <path>`.
+      #
+      # `tags:` takes one COMPLETE image reference per line. `:latest` always
+      # points at the newest build; the github.sha tag is immutable, so you can
+      # always tell which commit an image came from and roll back to it.
+      - name: Build and push API
+        uses: docker/build-push-action@v6
+        with:
+          context: ./codefox-api
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/codefox-api:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/codefox-api:${{ github.sha }}
+
+      # build-args are baked into the image at BUILD time and cannot be
+      # changed when the container runs:
+      #   NEXT_PUBLIC_APP_URL → inlined into the client-side JS bundle
+      #   API_URL             → next.config.ts rewrites() is serialised into
+      #                         .next/routes-manifest.json during `next build`
+      # Change either one and you must rebuild the image.
+      - name: Build and push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/codefox-frontend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/codefox-frontend:${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_APP_URL=http://localhost:3000
+            API_URL=http://api:4000
