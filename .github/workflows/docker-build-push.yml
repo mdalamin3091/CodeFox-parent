@@ -1,15 +1,22 @@
 name: Build and Push Images
 
-# Builds both Docker images and pushes them to Docker Hub. No server deploy.
+# Builds both Docker images, pushes them to Docker Hub, then restarts the
+# containers on the server over SSH.
 #
 # Required repository SECRETS (Settings → Secrets and variables → Actions):
 #   DOCKERHUB_USERNAME   Docker Hub account — also the image namespace
 #   DOCKERHUB_TOKEN      Docker Hub access token, NOT your password
 #                        (Docker Hub → Account Settings → Security → New Access Token)
+#   SERVER_HOST          EC2 public IP or hostname
+#   SERVER_USER          ssh user — `ubuntu` (Ubuntu AMI) or `ec2-user` (Amazon Linux)
+#   SERVER_SSH_KEY       full private key, .pem contents including BEGIN/END lines
 #
 # Images produced:
-#   <user>/codefox-api:latest
-#   <user>/codefox-frontend:latest
+#   <user>/codefox-api:latest       + :<commit-sha>
+#   <user>/codefox-frontend:latest  + :<commit-sha>
+#
+# The server needs /opt/codefox/docker-compose.prod.yml referencing those
+# images by `image:` — see the notes below the workflow run.
 
 # When this workflow runs.
 on:
@@ -63,5 +70,53 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/codefox-frontend:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/codefox-frontend:${{ github.sha }}
           build-args: |
-            NEXT_PUBLIC_APP_URL=http://localhost:3000
+            NEXT_PUBLIC_APP_URL=http://103.23.95.100:3000
             API_URL=http://api:4000
+
+  deploy:
+    # This job runs after the build job completes successfully.
+    needs: build
+    runs-on: ubuntu-latest
+
+
+    steps:
+      # The compose file lives in the repo, so the runner needs the code.
+      - uses: actions/checkout@v4
+
+      # EC2 disables password login by default (PasswordAuthentication no in
+      # sshd_config), so `key` is the only auth that works. Paste the entire
+      # .pem file — including the BEGIN/END lines — into SERVER_SSH_KEY.
+      - name: Copy compose file to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: docker-compose.prod.yml
+          target: ~/codefox
+
+      - name: Pull images and restart containers
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_SSH_PASSWORD }}
+          script: |
+            # Stop on the first error. Without this a failed command lets the
+            # script continue and the job still reports success.
+            set -e
+            cd ~/codefox
+
+            # docker-compose.prod.yml refers to ${DOCKERHUB_USERNAME}; Compose
+            # reads it from the shell environment.
+            export DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME }}"
+
+            # Needed for private Docker Hub repos; harmless for public ones.
+            # --password-stdin keeps the token out of `ps` output.
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d
+            docker compose -f docker-compose.prod.yml ps
+
+            docker logout

@@ -1,0 +1,54 @@
+# Production stack — runs on the AWS EC2 server.
+#
+# Uses `image:` instead of `build:` because the server has no source code.
+# It only pulls prebuilt images that GitHub Actions pushed to Docker Hub.
+#
+# Copied to ~/codefox on the server by .github/workflows/docker-build-push.yml.
+# The server also needs ~/codefox/.env (created manually, holds the API secrets).
+#
+# Run by hand on the server:
+#   cd ~/codefox
+#   docker compose -f docker-compose.prod.yml up -d
+
+services:
+  api:
+    # DOCKERHUB_USERNAME comes from ~/codefox/.env on the server.
+    image: ${DOCKERHUB_USERNAME}/codefox-api:latest
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      # Redis is reachable by service name inside the compose network.
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "4000:4000"
+    depends_on:
+      - redis
+    restart: always
+
+  frontend:
+    image: ${DOCKERHUB_USERNAME}/codefox-frontend:latest
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      # Read at runtime by Server Components. The Next.js proxy destination
+      # is already baked into the image at build time.
+      API_URL: http://api:4000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    restart: always
+
+  redis:
+    image: redis:alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    # No published port — only the api container talks to Redis.
+    restart: always
+
+volumes:
+  redis-data:
