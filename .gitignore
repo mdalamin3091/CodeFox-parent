@@ -39,3 +39,6 @@ Thumbs.db
 # Deploy
 .vercel
 *.pem
+
+# Local deploy configs (nginx, server setup notes)
+deploy/

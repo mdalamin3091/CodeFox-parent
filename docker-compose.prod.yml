@@ -22,7 +22,8 @@ services:
       # Redis is reachable by service name inside the compose network.
       REDIS_URL: redis://redis:6379
     ports:
-      - "4000:4000"
+      # Bound to loopback — only nginx on the host reaches it, never the internet
+      - "127.0.0.1:4000:4000"
     depends_on:
       - redis
     restart: always
@@ -37,7 +38,8 @@ services:
       # is already baked into the image at build time.
       API_URL: http://api:4000
     ports:
-      - "3000:3000"
+      # Bound to loopback — only nginx on the host reaches it, never the internet
+      - "127.0.0.1:3000:3000"
     depends_on:
       - api
     restart: always

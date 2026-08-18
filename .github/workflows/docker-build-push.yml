@@ -72,7 +72,7 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/codefox-frontend:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/codefox-frontend:${{ github.sha }}
           build-args: |
-            NEXT_PUBLIC_APP_URL=http://103.23.95.100:3000
+            NEXT_PUBLIC_APP_URL=http://useclarivo.xyz
             API_URL=http://api:4000
 
   # Applies pending Prisma migrations to the Neon database.
