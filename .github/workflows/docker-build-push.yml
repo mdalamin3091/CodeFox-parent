@@ -11,7 +11,6 @@ name: Build and Push Images
 #   SERVER_USER          ssh user — `ubuntu` (Ubuntu AMI) or `ec2-user` (Amazon Linux)
 #   SERVER_SSH_PASSWORD  password for that ssh user (needs PasswordAuthentication
 #                        yes in the server's /etc/ssh/sshd_config)
-#   DATABASE_URL         Neon connection string — used to run migrations
 #
 # Images produced:
 #   <user>/codefox-api:latest       + :<commit-sha>
@@ -75,65 +74,11 @@ jobs:
             NEXT_PUBLIC_APP_URL=http://useclarivo.xyz
             API_URL=http://api:4000
 
-  # Applies pending Prisma migrations to the Neon database.
-  #
-  # Runs AFTER build (a broken build should never touch the database) and
-  # BEFORE deploy (new code must never meet an old schema).
-  #
-  # It runs here rather than inside the container because the runtime image
-  # installs with `npm ci --omit=dev`, and `prisma` is a devDependency — the
-  # CLI simply isn't in that image.
-  migrate:
+  deploy:
+    # Runs only after the build job succeeds.
     needs: build
     runs-on: ubuntu-latest
-
-    # Every `run` step below starts in codefox-api/ instead of the repo root.
-    defaults:
-      run:
-        working-directory: codefox-api
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          # Caches ~/.npm between runs so `npm ci` is much faster.
-          cache: npm
-          cache-dependency-path: codefox-api/package-lock.json
-
-      # `npm ci` installs devDependencies too, which is where prisma lives.
-      - name: Install dependencies
-        run: npm ci
-
-      # A missing secret is substituted as an EMPTY STRING, not an error, so
-      # without this check the failure surfaces later as a confusing
-      # "PrismaConfigEnvError: Cannot resolve environment variable".
-      # Length is printed instead of the value — never echo a secret.
-      - name: Check DATABASE_URL secret exists
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: |
-          if [ -z "$DATABASE_URL" ]; then
-            echo "::error::DATABASE_URL secret is empty or not set. Add it under Settings → Secrets and variables → Actions → Repository secrets."
-            exit 1
-          fi
-          echo "DATABASE_URL is set (${#DATABASE_URL} characters)"
-
-      # `migrate deploy` only APPLIES existing migration files — it never
-      # creates or edits them, and never prompts. That's the production
-      # counterpart to `migrate dev`, which you run locally.
-      - name: Apply database migrations
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: npx prisma migrate deploy
-
-  deploy:
-    # Runs only after migrations have been applied successfully.
-    needs: migrate
-    runs-on: ubuntu-latest
-
-
+    
     steps:
       # The compose file lives in the repo, so the runner needs the code.
       - uses: actions/checkout@v4
